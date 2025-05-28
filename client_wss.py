@@ -98,9 +98,7 @@ def extract_tags(text):
     tags = re.findall(r'<\|([^|]+)\|>', text)
     
     # Extract by order: 1st=language, 2nd=emotion, 3rd=event
-    language = tags[0] if len(tags) > 0 else None
-    emotion = tags[1] if len(tags) > 1 else None
-    event = tags[2] if len(tags) > 2 else None
+    language, emotion, event = tags[:3]
     
     return language, emotion, event
 
