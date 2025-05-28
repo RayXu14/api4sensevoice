@@ -93,19 +93,16 @@ def calculate_latency(audio_streamer, receive_time, latencies):
             audio_streamer.send_times = audio_streamer.send_times[-50:]
 
 def extract_tags(text):
-    """提取语种标签和情感标签"""
-    if not text:
-        return None, None
+    """提取语种标签、情感标签和事件标签"""
+    # 找到所有的标签
+    tags = re.findall(r'<\|([^|]+)\|>', text)
     
-    # 提取语种标签 (如 <|zh|>, <|en|>)
-    lang_match = re.search(r'<\|([a-z]{2})\|>', text)
-    language = lang_match.group(1)
+    # 按顺序提取：第一个是语言，第二个是情感，第三个是事件
+    language = tags[0] if len(tags) > 0 else None
+    emotion = tags[1] if len(tags) > 1 else None
+    event = tags[2] if len(tags) > 2 else None
     
-    # 提取情感标签 (如 <|SAD|>, <|HAPPY|>, <|EMO_UNKNOWN|>)
-    emotion_match = re.search(r'<\|((?:EMO_)?[A-Z_]+)\|>', text)
-    emotion = emotion_match.group(1)
-    
-    return language, emotion
+    return language, emotion, event
 
 def handle_response(response_data, receive_time, audio_streamer, latencies):
     """Handle server response"""
@@ -124,12 +121,14 @@ def handle_response(response_data, receive_time, audio_streamer, latencies):
                 info_json = json.loads(info_str)
                 text_field = info_json.get('text', '')
                 if text_field:
-                    language, emotion = extract_tags(text_field)
-                    print(f"\n🎤 Transcribed text: {data}")
+                    language, emotion, event = extract_tags(text_field)
+                    print(f"🎤 Transcribed text: {data}")
                     if language:
                         print(f"   🌐 Language: {language}")
                     if emotion:
                         print(f"   😊 Emotion: {emotion}")
+                    if event:
+                        print(f"   🎵 Event: {event}")
             except json.JSONDecodeError:
                 pass
             calculate_latency(audio_streamer, receive_time, latencies)
@@ -156,8 +155,6 @@ async def receive_responses(websocket, audio_streamer):
             handle_response(response_data, receive_time, audio_streamer, latencies)
         except json.JSONDecodeError:
             print(f"⚠️  Received non-JSON response: {response}")
-
-        break
 
 async def connect_to_server(url, block_ms):
     audio_streamer = AudioStreamer(block_ms)
