@@ -93,11 +93,11 @@ def calculate_latency(audio_streamer, receive_time, latencies):
             audio_streamer.send_times = audio_streamer.send_times[-50:]
 
 def extract_tags(text):
-    """提取语种标签、情感标签和事件标签"""
-    # 找到所有的标签
+    """Extract language, emotion and event tags"""
+    # Find all tags
     tags = re.findall(r'<\|([^|]+)\|>', text)
     
-    # 按顺序提取：第一个是语言，第二个是情感，第三个是事件
+    # Extract by order: 1st=language, 2nd=emotion, 3rd=event
     language = tags[0] if len(tags) > 0 else None
     emotion = tags[1] if len(tags) > 1 else None
     event = tags[2] if len(tags) > 2 else None
