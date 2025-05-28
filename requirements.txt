@@ -16,3 +16,4 @@ simplejson
 sortedcontainers
 websockets
 loguru
+sounddevice

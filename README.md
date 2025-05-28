@@ -144,12 +144,20 @@ reg_spks_files = [
     - `info` (string): meta info
     - `data` (object): Response object
 
-#### Client Testing Page
+#### Client Testing
 
+##### Web Client
 - `client_wss.html`
 - Change `wsUrl` to your own WebSocket server address to test
 ```javascript
 ws = new WebSocket(`wss://your_wss_server_address/ws/transcribe${sv ? '?sv=1' : ''}`);
+```
+
+##### Python Client
+- `client.py` - Real-time audio streaming client for testing
+- Usage:
+```bash
+python client.py
 ```
 
 ## Roadmap
