@@ -4,6 +4,8 @@ import sounddevice
 import json
 import time
 import argparse
+import math
+import re
 
 # Upstream data format: PCM binary
 CHANNELS = 1
@@ -12,96 +14,64 @@ DTYPE = "int16"
 
 class AudioStreamer:
     def __init__(self, block_ms):
-        self.input_queue = asyncio.Queue()
-        self.loop = None
-        self.send_times = {}
+        self.audio_queue = asyncio.Queue()
+
+        self.send_times = []  # List of (chunk_id, send_time) tuples
         self.chunk_counter = 0
         self.last_speech_detection_time = None  # Track when speech was last detected
         self.detection_latencies = []  # Track audio-to-detection latencies
-        self.block_ms = block_ms
-        self.blocksize = int(SAMPLERATE * block_ms / 1000)  # Convert milliseconds to frames
 
-    async def stream_audio(self):
-        self.loop = asyncio.get_event_loop()
         print("Initializing audio stream...")
+        loop = asyncio.get_event_loop()
 
         def audio_callback(indata, frame_count, time_info, status):
             if status:
                 print(f"Audio status warning: {status}")
             
-            self.loop.call_soon_threadsafe(
-                self.input_queue.put_nowait, 
+            loop.call_soon_threadsafe(
+                self.audio_queue.put_nowait, 
                 bytes(indata)
             )
 
-        try:
-            with sounddevice.RawInputStream(
-                channels=CHANNELS,
-                samplerate=SAMPLERATE,
-                callback=audio_callback,
-                blocksize=self.blocksize,
-                dtype=DTYPE
-            ):
-                print(f"Audio stream started - block duration: {self.block_ms}ms ({self.blocksize} frames)")
-                
-                while True:
-                    try:
-                        yield await asyncio.wait_for(self.input_queue.get(), timeout=0.1)
-                    except asyncio.TimeoutError:
-                        continue
-        except Exception as e:
-            print(f"Audio stream error: {e}")
-            raise
+        blocksize = int(SAMPLERATE * block_ms / 1000)
+        self.stream = sounddevice.RawInputStream(
+            channels=CHANNELS,
+            samplerate=SAMPLERATE,
+            callback=audio_callback,
+            blocksize=blocksize,
+            dtype=DTYPE
+        )
+        print(f"Audio stream created - block duration: {block_ms}ms ({blocksize} frames)")
 
-async def send_audio_data(websocket, audio_streamer):
-    try:
-        async for audio_data in audio_streamer.stream_audio():
-            chunk_id = audio_streamer.chunk_counter
-            # Record the actual send time, not the capture time
+
+    async def streaming(self, websocket):
+        self.stream.start()
+        print(f"Audio stream started")
+
+        while True:
+            audio_data = await self.audio_queue.get()
             send_time = time.time()
-            audio_streamer.send_times[chunk_id] = send_time
-            audio_streamer.chunk_counter += 1
-            
+            chunk_id = self.chunk_counter
+            self.send_times.append((chunk_id, send_time))
+            self.chunk_counter += 1
             await websocket.send(audio_data)
-    except (websockets.exceptions.ConnectionClosed, Exception) as e:
-        print(f"Send audio data error: {e}")
-
-def parse_info_data(info_str):
-    """Parse and print detailed information"""
-    try:
-        info_data = json.loads(info_str)
-        print(f"📋 Detailed info:")
-        for key, value in info_data.items():
-            if key == 'avg_logprob':
-                confidence = round((value + 1) * 100, 1)
-                print(f"   📊 Confidence: {confidence}% (logprob: {value:.3f})")
-            elif key == 'emotion':
-                print(f"   😊 Emotion label: {value}")
-            elif key == 'language':
-                print(f"   🌍 Language label: {value}")
-            elif key == 'speaker':
-                print(f"   👤 Speaker: {value}")
-            elif key == 'timestamp':
-                print(f"   ⏰ Timestamp: {value}")
-            else:
-                print(f"   {key}: {value}")
-    except json.JSONDecodeError:
-        print(f"   ⚠️  Info field is not valid JSON: {info_str}")
 
 def calculate_detection_latency(audio_streamer, detection_time):
     """Calculate approximate latency from recent audio activity to speech detection"""
     if audio_streamer.send_times:
         # This is an approximation since we can't precisely correlate 
         # which audio chunks triggered this detection
-        recent_send_time = max(audio_streamer.send_times.values())
+        # Since send_times is ordered by time, just get the last one
+        recent_send_time = audio_streamer.send_times[-1][1]
         detection_latency = (detection_time - recent_send_time) * 1000
         
         if detection_latency > 0:
             audio_streamer.detection_latencies.append(detection_latency)
             avg_detection_latency = sum(audio_streamer.detection_latencies[-10:]) / len(audio_streamer.detection_latencies[-10:])
-            print(f"   🎯 Detection response time: {detection_latency:.1f}ms | Average: {avg_detection_latency:.1f}ms")
+            print(f"   🎯 Speech detection response time: {detection_latency:.1f}ms | Average: {avg_detection_latency:.1f}ms")
         else:
             print(f"   ⚠️  Detection timing anomaly (negative latency: {detection_latency:.1f}ms)")
+            assert False, 'Are you sure we have negative latency?'
 
 def calculate_latency(audio_streamer, receive_time, latencies):
     """Calculate and display latency from last speech detection to transcription result"""
@@ -109,18 +79,33 @@ def calculate_latency(audio_streamer, receive_time, latencies):
         # Calculate latency from the last speech detection time
         latency = (receive_time - audio_streamer.last_speech_detection_time) * 1000
         
-        # Only add positive latencies (avoid negative values due to timing issues)
         if latency > 0:
             latencies.append(latency)
             avg_latency = sum(latencies[-10:]) / len(latencies[-10:])
-            print(f"   ⚡ Transcription latency: {latency:.1f}ms | Average: {avg_latency:.1f}ms")
-            print(f"   📏 (from last speech detection to transcription result)")
+            print(f"   ⚡ Transcription latency: {latency:.1f}ms | last 10 average: {avg_latency:.1f}ms")
+        else:
+            print(f"   ⚠️  ASR timing anomaly (negative latency: {latency:.1f}ms)")
+            assert False, 'Are you sure we have negative latency?'
         
         # Clean up old send times to prevent memory growth
+        # Since list is ordered by time, just keep the most recent entries
         if len(audio_streamer.send_times) > 100:
-            # Keep only the most recent 50 entries
-            sorted_items = sorted(audio_streamer.send_times.items())
-            audio_streamer.send_times = dict(sorted_items[-50:])
+            audio_streamer.send_times = audio_streamer.send_times[-50:]
+
+def extract_tags(text):
+    """提取语种标签和情感标签"""
+    if not text:
+        return None, None
+    
+    # 提取语种标签 (如 <|zh|>, <|en|>)
+    lang_match = re.search(r'<\|([a-z]{2})\|>', text)
+    language = lang_match.group(1)
+    
+    # 提取情感标签 (如 <|SAD|>, <|HAPPY|>, <|EMO_UNKNOWN|>)
+    emotion_match = re.search(r'<\|((?:EMO_)?[A-Z_]+)\|>', text)
+    emotion = emotion_match.group(1)
+    
+    return language, emotion
 
 def handle_response(response_data, receive_time, audio_streamer, latencies):
     """Handle server response"""
@@ -134,92 +119,58 @@ def handle_response(response_data, receive_time, audio_streamer, latencies):
     print(f"   Data: {data}")
     
     if code == 0 and data and str(data).strip():
-        # Transcription result - this is where we calculate the real latency
-        print(f"\n🎤 Transcribed text: {data}")
         if info_str:
-            parse_info_data(info_str)
+            try:
+                info_json = json.loads(info_str)
+                text_field = info_json.get('text', '')
+                if text_field:
+                    language, emotion = extract_tags(text_field)
+                    print(f"\n🎤 Transcribed text: {data}")
+                    if language:
+                        print(f"   🌐 Language: {language}")
+                    if emotion:
+                        print(f"   😊 Emotion: {emotion}")
+            except json.JSONDecodeError:
+                pass
             calculate_latency(audio_streamer, receive_time, latencies)
     elif code == 2:
-        # System information - track speech detection
         if 'detect speech' in info_str:
-            print("🔊 Speech detection started...")
-            # Calculate detection latency
             calculate_detection_latency(audio_streamer, receive_time)
-            # Update the last speech detection time
             audio_streamer.last_speech_detection_time = receive_time
-        elif 'detect speaker' in info_str:
-            print(f"👤 Speaker detected: {data}")
         else:
-            print(f"ℹ️  System info: {info_str}")
-            if data:
-                print(f"   Data: {data}")
+            print(f"❓ Unknown System info: {info_str}")
+            assert False
     else:
-        print(f"❓ Unknown response type")
+        print(f"❓ Unknown response type: {code}")
+        assert False
 
 async def receive_responses(websocket, audio_streamer):
     latencies = []
     
-    try:
-        while True:
-            try:
-                response = await asyncio.wait_for(websocket.recv(), timeout=0.1)
-                receive_time = time.time()
-                
-                try:
-                    response_data = json.loads(response)
-                    handle_response(response_data, receive_time, audio_streamer, latencies)
-                except json.JSONDecodeError:
-                    print(f"⚠️  Received non-JSON response: {response}")
-                    
-            except asyncio.TimeoutError:
-                continue
-            except websockets.exceptions.ConnectionClosed:
-                print("WebSocket connection closed")
-                break
-            except Exception as e:
-                print(f"Receive response error: {e}")
-                break
-    except Exception as e:
-        print(f"Response receiving task error: {e}")
-    
-    # Display latency statistics
-    if latencies:
-        avg_latency = sum(latencies) / len(latencies)
-        print(f"\n📊 Transcription Latency Statistics (total {len(latencies)} times):")
-        print(f"   Average latency: {avg_latency:.1f}ms")
-        print(f"   Minimum latency: {min(latencies):.1f}ms") 
-        print(f"   Maximum latency: {max(latencies):.1f}ms")
-    
-    if audio_streamer.detection_latencies:
-        avg_detection = sum(audio_streamer.detection_latencies) / len(audio_streamer.detection_latencies)
-        print(f"\n🎯 Detection Response Time Statistics (total {len(audio_streamer.detection_latencies)} times):")
-        print(f"   Average response time: {avg_detection:.1f}ms")
-        print(f"   Minimum response time: {min(audio_streamer.detection_latencies):.1f}ms")
-        print(f"   Maximum response time: {max(audio_streamer.detection_latencies):.1f}ms")
-        print(f"   Note: These are approximate values due to audio-detection correlation limitations")
+    while True:
+        response = await websocket.recv()
+        receive_time = time.time()
+        
+        try:
+            response_data = json.loads(response)
+            handle_response(response_data, receive_time, audio_streamer, latencies)
+        except json.JSONDecodeError:
+            print(f"⚠️  Received non-JSON response: {response}")
+
+        break
 
 async def connect_to_server(url, block_ms):
     audio_streamer = AudioStreamer(block_ms)
 
     print(f"Connecting to server: {url}")
     
-    async with websockets.connect(url) as websocket:
-        print("WebSocket connection successful")
+    websocket = await websockets.connect(url)
+    print("WebSocket connection successful")
         
-        tasks = [
-            asyncio.create_task(send_audio_data(websocket, audio_streamer)),
-            asyncio.create_task(receive_responses(websocket, audio_streamer))
-        ]
-        
-        try:
-            await asyncio.gather(*tasks)
-        except KeyboardInterrupt:
-            print("\nUser interrupted")
-            for task in tasks:
-                task.cancel()
-            # Wait for tasks to be cancelled
-            await asyncio.gather(*tasks, return_exceptions=True)
-            raise  # Re-raise to be caught by main()
+    await asyncio.gather(
+            audio_streamer.streaming(websocket),
+            receive_responses(websocket, audio_streamer)
+        )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
