@@ -14,6 +14,6 @@ datasets==2.21.0
 pillow
 simplejson
 sortedcontainers
-websockets
+websockets==11  # Version 15 will cause client_wss.py to fail to connect to server_wss.py correctly
 loguru
 sounddevice
