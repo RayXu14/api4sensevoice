@@ -104,18 +104,18 @@ curl -X 'POST'
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the FastAPI app with a specified port.")
     parser.add_argument('--port', type=int, default=27000, help='Port number to run the FastAPI app on.')
-    parser.add_argument('--certfile', type=str, default='path_to_your_certfile', help='SSL certificate file')
-    parser.add_argument('--keyfile', type=str, default='path_to_your_keyfile', help='SSL key file')
+    # parser.add_argument('--certfile', type=str, default='path_to_your_certfile', help='SSL certificate file')
+    # parser.add_argument('--keyfile', type=str, default='path_to_your_keyfile', help='SSL key file')
     args = parser.parse_args()
 
-    uvicorn.run(app, host="0.0.0.0", port=args.port, ssl_certfile=args.certfile, ssl_keyfile=args.keyfile)
+    uvicorn.run(app, host="0.0.0.0", port=args.port)  #, ssl_certfile=args.certfile, ssl_keyfile=args.keyfile)
 ```
 The above code is from the end of server_wss.py. You can modify it to define the port, certfile, and keyfile, then directly run python server_wss.py to start the WebSocket service.
 
 You can also set these through command-line arguments, for example:
 
 ```bash
-python server_wss.py --port 8888 --certfile path_to_your_certfile --keyfile path_to_your_key
+python server_wss.py --port 8888  # --certfile path_to_your_certfile --keyfile path_to_your_key
 ```
 
 If you want to enable speaker verification:
