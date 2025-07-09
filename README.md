@@ -154,10 +154,10 @@ ws = new WebSocket(`wss://your_wss_server_address/ws/transcribe${sv ? '?sv=1' : 
 ```
 
 ##### Python Client
-- `client.py` - Real-time audio streaming client for testing server_wss.py
+- `client_wss.py` - Real-time audio streaming client for testing server_wss.py
 - Usage:
 ```bash
-python client.py
+python client_wss.py
 ```
 
 ## Roadmap
