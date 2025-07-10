@@ -179,14 +179,8 @@ model_asr = AutoModel(
     disable_update=True
 )
 
-model_vad = AutoModel(
-    model="fsmn-vad",
-    model_revision="v2.0.4",
-    disable_pbar = True,
-    max_end_silence_time=500,
-    # speech_noise_thres=0.6,
-    disable_update=True,
-)
+# model_vad will be initialized after parsing command line arguments
+model_vad = None
 
 reg_spks_files = [
     "speaker/speaker1_a_cn_16k.wav"
@@ -388,8 +382,20 @@ async def websocket_endpoint(websocket: WebSocket):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the FastAPI app with a specified port.")
     parser.add_argument('--port', type=int, default=27000, help='Port number to run the FastAPI app on.')
+    parser.add_argument('--vad_ms_after_speech', type=int, default=500, help='VAD max end silence time in milliseconds.')
     # parser.add_argument('--certfile', type=str, default='path_to_your_SSL_certificate_file.crt', help='SSL certificate file')
     # parser.add_argument('--keyfile', type=str, default='path_to_your_SSL_certificate_file.key', help='SSL key file')
     args = parser.parse_args()
+    
+    # Initialize model_vad with the parsed argument
+    model_vad = AutoModel(
+        model="fsmn-vad",
+        model_revision="v2.0.4",
+        disable_pbar = True,
+        max_end_silence_time=args.vad_ms_after_speech,
+        # speech_noise_thres=0.6,
+        disable_update=True,
+    )
+    
     # uvicorn.run(app, host="0.0.0.0", port=args.port, ssl_certfile=args.certfile, ssl_keyfile=args.keyfile)
     uvicorn.run(app, host="0.0.0.0", port=args.port)
