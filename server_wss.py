@@ -382,7 +382,7 @@ async def websocket_endpoint(websocket: WebSocket):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the FastAPI app with a specified port.")
     parser.add_argument('--port', type=int, default=27000, help='Port number to run the FastAPI app on.')
-    parser.add_argument('--vad_ms_after_speech', type=int, default=800, help='VAD max end silence time in milliseconds.')
+    parser.add_argument('--vad_ms_after_speech', type=int, default=500, help='VAD max end silence time in milliseconds.')
     parser.add_argument('--speech_noise_thres', type=float, default=0.8, help='Speech noise threshold for VAD (0.0-1.0, higher = less sensitive).')
     # parser.add_argument('--certfile', type=str, default='path_to_your_SSL_certificate_file.crt', help='SSL certificate file')
     # parser.add_argument('--keyfile', type=str, default='path_to_your_SSL_certificate_file.key', help='SSL key file')
