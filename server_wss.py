@@ -388,7 +388,6 @@ if __name__ == "__main__":
     # parser.add_argument('--keyfile', type=str, default='path_to_your_SSL_certificate_file.key', help='SSL key file')
     args = parser.parse_args()
     
-    # Initialize model_vad with the parsed argument
     model_vad = AutoModel(
         model="fsmn-vad",
         model_revision="v2.0.4",
