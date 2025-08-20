@@ -2,10 +2,6 @@
 run.log
 __pycache__
 speaker/speaker_tf_16k.wav
-<<<<<<< Updated upstream
-CLAUDE.md
-=======
 CLAUDE.md
 .ipynb_checkpoints
 .DS_Store
->>>>>>> Stashed changes
